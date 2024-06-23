@@ -1,195 +1,183 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>チャットボット</title>
-    <link rel="stylesheet" type="text/css" href="style.css">
+    <base target="_top">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            width: 100vw;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            box-sizing: border-box;
+            position: relative;
+            overflow: hidden;
+            background-color: black;
+        }
+
+        .animated-border::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 20px;
+            background: linear-gradient(90deg, rgba(255, 182, 193, 0.7), rgba(255, 223, 186, 0.7), rgba(255, 255, 186, 0.7), rgba(186, 255, 201, 0.7), rgba(186, 255, 255, 0.7), rgba(201, 186, 255, 0.7), rgba(255, 186, 255, 0.7));
+            filter: blur(10px);
+            background-size: 200% 200%;
+            box-shadow: 0 0 10px rgba(255, 182, 193, 0.7),
+                        0 0 20px rgba(255, 223, 186, 0.7),
+                        0 0 30px rgba(255, 255, 186, 0.7),
+                        0 0 40px rgba(186, 255, 201, 0.7),
+                        0 0 50px rgba(186, 255, 255, 0.7),
+                        0 0 60px rgba(201, 186, 255, 0.7),
+                        0 0 70px rgba(255, 186, 255, 0.7);
+            transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.5s ease;
+            pointer-events: none;
+            transform: scaleX(0);
+        }
+
+        .animated-border.active::after {
+            transform: scaleX(1);
+        }
+
+        .animated-border.out::after {
+            transform: scaleX(0);
+            opacity: 0;
+        }
+
+        @keyframes gradientBorder {
+            0% {
+                background-position: 0% 50%;
+            }
+            50% {
+                background-position: 100% 50%;
+            }
+            100% {
+                background-position: 0% 50%;
+            }
+        }
+
+        .animated-border::after {
+            animation: gradientBorder 5s ease infinite;
+        }
+
+        .wave::after {
+            animation: gradientBorder 5s ease infinite, wave 1s infinite;
+        }
+
+        @keyframes wave {
+            0%, 100% {
+                transform: scaleY(1);
+            }
+            25% {
+                transform: scaleY(calc(1 + (Math.random() * 0.2 - 0.1)));
+            }
+            50% {
+                transform: scaleY(calc(1 + (Math.random() * 0.4 - 0.2)));
+            }
+            75% {
+                transform: scaleY(calc(1 + (Math.random() * 0.2 - 0.1)));
+            }
+        }
+
+        #status {
+            z-index: 1;
+            color: white;
+        }
+    </style>
 </head>
 <body>
-    <div id="chatbox">
-        <div id="messages">
-            <div class="bot-message">
-                <p>こんにちは。チャットボットです。お探しのページに導くお手伝いをさせていただきます。</p>
-                <p>どちらのぺージにおつなぎしますか？</p>
-                <p><button type="button" onclick="addText('利用規約のページ')">利用規約のページ</button></p>
-                <p><button type="button" onclick="addText('プライバシーポリシーのページ')">プライバシーポリシーのページ</button></p>
-            </div>
-        </div>
-        <input type="text" placeholder="メッセージを入力してください" id="input">
-        <button type="button" onclick="sendMessage()">送信</button>
-    </div>
-    <script src="script.js"></script>
-</body>
-</html>
+    <p id="status">聞き取り中...</p>
+    <audio id="wakeSound" src="https://x.gd/pug6h"></audio>
+    <audio id="cancelSound" src="https://x.gd/Jz4Ej"></audio>
+    <script>
+        window.onload = function() {
+            const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+            recognition.lang = 'ja-JP';
+            recognition.continuous = true;
+            recognition.interimResults = false;
 
- <script>
- function sendMessage() {
-    var input = document.getElementById("input");
-    var messages = document.getElementById("messages");
-  
-    var text = input.value;
-  
-    if (text !== "") {
-        var userMessage = document.createElement("div");
-        userMessage.innerHTML = text;
-        userMessage.classList.add("user-message");
-        messages.appendChild(userMessage);
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const analyser = audioContext.createAnalyser();
+            analyser.fftSize = 256;
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            let source = null;
 
-        var writingAnimation = document.createElement("div");
-        writingAnimation.innerHTML = "　　書き込み中...";
-        writingAnimation.classList.add("writing-animation");
-        messages.appendChild(writingAnimation);
+            let isMonitoring = false;
+            let timeoutId = null;
+            let idleTimeoutId = null;
 
-        setTimeout(function() {
-            messages.removeChild(writingAnimation);
+            const startMonitoring = async () => {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                source = audioContext.createMediaStreamSource(stream);
+                source.connect(analyser);
+                isMonitoring = true;
+                monitorVolume();
+            };
 
-            var botMessage = document.createElement("div");
+            const stopMonitoring = () => {
+                isMonitoring = false;
+                if (source) {
+                    source.disconnect();
+                    source = null;
+                }
+            };
 
-            if (text.includes("利用規約")) {
-                botMessage.innerHTML = "利用規約のページにおつなぎします。";
-                playSound('https://soundeffect-lab.info/sound/button/mp3/decision29.mp3');
-                openPage("https://sites.google.com/view/sorairomedia/lab/terms-of-service");
-            } else if (text.includes("プライバシー")) {
-                botMessage.innerHTML = "プライバシーポリシーのページにおつなぎします。";
-                playSound('https://soundeffect-lab.info/sound/button/mp3/decision29.mp3');
-                openPage("https://sites.google.com/view/sorairomedia/lab/privacy-polycy");
-            } else {
-                botMessage.innerHTML = "提示した2択から選択してください。";
-                playSound('https://soundeffect-lab.info/sound/button/mp3/decision40.mp3'); // 新たに追加
-            }
+            const monitorVolume = () => {
+                if (!isMonitoring) return;
+                analyser.getByteFrequencyData(dataArray);
+                const volume = dataArray.reduce((a, b) => a + b) / dataArray.length;
+                if (volume < 10) {
+                    if (!idleTimeoutId) {
+                        idleTimeoutId = setTimeout(() => {
+                            document.body.classList.remove('active');
+                            document.body.classList.add('out');
+                            document.body.classList.remove('wave');
+                            document.getElementById('cancelSound').play();
+                            document.getElementById('status').innerText = '聞き取り中...';
+                            stopMonitoring();
+                        }, 5000);
+                    }
+                } else {
+                    clearTimeout(idleTimeoutId);
+                    idleTimeoutId = null;
+                    if (!document.body.classList.contains('wave')) {
+                        document.body.classList.add('wave');
+                    }
+                }
+                requestAnimationFrame(monitorVolume);
+            };
 
-            botMessage.classList.add("bot-message");
-            messages.appendChild(botMessage);
-            messages.scrollTop = messages.scrollHeight; // 最新のメッセージを見やすくスクロール
-        }, 2000);
+            recognition.onresult = (event) => {
+                const transcript = event.results[event.results.length - 1][0].transcript.trim();
+                console.log('Recognized:', transcript);
 
-        input.value = "";
-    }
-}
-function openPage(url) {
-    setTimeout(function() {
-        window.open(url, "_blank");
-    }, 2000);
-}
+                if (transcript.includes('にゃん')) {
+                    console.log('にゃんだよ！どうしたの？');
+                    document.getElementById('status').innerText = 'にゃんだよ！どうしたの？';
+                    document.body.classList.add('animated-border', 'active');
+                    document.body.classList.remove('out');
+                    document.getElementById('wakeSound').play();
+                    clearTimeout(timeoutId);
+                    clearTimeout(idleTimeoutId);
+                    startMonitoring();
+                }
+            };
 
-function playSound(url) {
-    var audio = new Audio(url);
-    audio.play();
-}
+            recognition.onerror = (event) => {
+                console.error('Speech recognition error:', event.error);
+            };
 
-// Enterキーで送信
-document.getElementById("input").addEventListener("keyup", function(event) {
-    if (event.key === "Enter") {
-        sendMessage();
-    }
-});
+            recognition.onend = () => {
+                recognition.start();
+            };
 
-function addText(text) {
-    var input = document.getElementById("input");
-    input.value = text;
-    setTimeout(function() {
-        sendMessage(); // 0.3秒後に自動送信
-    }, 300);
-}
-
-</script>
-<style>
-#chatbox {
-    width: 400px;
-    height: 500px;
-    border: 1px solid #ccc;
-    border-radius: 5px;
-    padding: 10px;
-    animation: fadeIn 1s;
-}
-
-@keyframes fadeIn {
-    from {
-        opacity: 0;
-    }
-    to {
-        opacity: 1;
-    }
-}
-
-#messages {
-    height: 400px;
-    overflow-y: scroll;
-}
-
-.user-message {
-    background-color: #eee;
-    padding: 5px;
-    border-radius: 5px;
-    margin: 5px 0;
-    text-align: right;
-    animation: slideInRight 0.5s;
-}
-
-.bot-message {
-    background-color: #e0f2f1; /* 薄い水色に変更 */
-    padding: 5px;
-    border-radius: 5px;
-    margin: 5px 0;
-    animation: slideInLeft 0.5s;
-}
-
-@keyframes slideInRight {
-    from {
-        transform: translateX(100%);
-    }
-    to {
-        transform: translateX(0);
-    }
-}
-
-@keyframes slideInLeft {
-    from {
-        transform: translateX(-100%);
-    }
-    to {
-        transform: translateX(0);
-    }
-}
-
-.writing-animation {
-    background-color: #e0f2f1; /* 薄い水色に変更 */
-    padding: 5px;
-    border-radius: 5px;
-    margin: 5px 0;
-    text-align: left;
-    animation: fadeIn 1s, pulse 1s infinite alternate;
-}
-
-@keyframes pulse {
-    from {
-        transform: scale(1);
-    }
-    to {
-        transform: scale(1.1);
-    }
-}
-
-#input {
-    width: 80%;
-    padding: 5px;
-    margin-bottom: 5px;
-    border-radius: 5px;
-    border: 1px solid #ccc;
-}
-
-button {
-    padding: 5px 10px;
-    background-color: #4CAF50;
-    color: white;
-    border: none;
-    border-radius: 5px;
-    cursor: pointer;
-}
-
-button:hover {
-    background-color: #3e8e41;
-}
-
-</style>
+            recognition.start();
+        };
+    </script>
 </body>
 </html>
